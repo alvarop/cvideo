@@ -9,6 +9,7 @@
 #define HSYNC_PIN (1) // P2.1
 
 #define LINE_PERIOD (6350) // ~15.75 kHz
+#define PIXEL_PERIOD (525) // 10 columns for now
 #define FRONT_PORCH (150) // 1.5us
 #define HSYNC_WIDTH (485) // 4.85us
 #define BACK_PORCH (485) // 4.85us
@@ -23,7 +24,10 @@
 #define SET_HSYNC LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN)
 
 volatile uint32_t systick_counter = 0;
-volatile uint32_t line = 0;
+volatile uint32_t scanline = 0;
+
+volatile int32_t col = 0;
+volatile int32_t row = 0;
 
 volatile uint32_t color = 0;
 
@@ -39,23 +43,27 @@ void TIMER0_IRQHandler(void) {
     // Clear MR0 interrupt flag
     LPC_TIM0->IR = 0x1;
     
-    if(++line == TOTAL_LINES) {
-      line = 0;
+    if(++scanline == TOTAL_LINES) {
+      scanline = 0;
       // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
       LPC_GPIO0->FIOSET = (1 << LED2_PIN);
-    } else if(line == VSYNC_END) {
+      
+      row = 0;
+    } else if(scanline == VSYNC_END) {
       LPC_TIM0->MR0 = LINE_PERIOD;
       LPC_GPIO0->FIOCLR = (1 << LED2_PIN);
     }
     
+    col = 0;
+    
     SET_HSYNC;
     
-    if(line >= VSYNC_END) {
+    if(scanline >= VSYNC_END) {
       LPC_TIM0->MR1 = HSYNC_WIDTH;
-    } else if((line > 5) && (line < 12)) {
+    } else if((scanline > 5) && (scanline < 12)) {
       LPC_TIM0->MR1 = LPC_TIM0->MR0 - HSYNC_WIDTH/2;
-    } else {;
+    } else {
       LPC_TIM0->MR1 = HSYNC_WIDTH/2;
     }
     
@@ -67,9 +75,11 @@ void TIMER0_IRQHandler(void) {
   } else if(ir & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
+    
     // Shouldn't draw on the first 20 lines!
-    if(line >= (VSYNC_END + 10)) {
-      if(color) {
+    if(scanline >= (VSYNC_END + 10)) {
+      
+      if((col & 1) ^ (color & 1)) {
         SET_WHITE;
       } else {
         SET_BLACK;
@@ -77,7 +87,11 @@ void TIMER0_IRQHandler(void) {
       
       if(LPC_TIM0->TC > (LINE_PERIOD - FRONT_PORCH)) {
         LPC_TIM0->MR2 = PIXEL_START;
+      } else {
+        LPC_TIM0->MR2 += PIXEL_PERIOD;
       }
+      
+      col++;
     }
         
   } else if(ir & 0x8) {

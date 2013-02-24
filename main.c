@@ -5,11 +5,12 @@
 #include <stdint.h>
 
 #define LED2_PIN (22)
+#define DBG_PIN (21)
 #define VIDEO_PIN (0) // P2.0
 #define HSYNC_PIN (1) // P2.1
 
 #define LINE_PERIOD (6350) // ~15.75 kHz
-#define PIXEL_PERIOD (525) // 10 columns for now
+#define PIXEL_PERIOD (200) // 26ish columns for now
 #define FRONT_PORCH (150) // 1.5us
 #define HSYNC_WIDTH (485) // 4.85us
 #define BACK_PORCH (485) // 4.85us
@@ -26,10 +27,12 @@
 volatile uint32_t systick_counter = 0;
 volatile uint32_t scanline = 0;
 
-volatile int32_t col = 0;
-volatile int32_t row = 0;
+volatile uint32_t half_frame = 0;
 
 volatile uint32_t color = 0;
+
+volatile int32_t col = 0;
+volatile int32_t row = 0;
 
 void SysTick_Handler (void)
 {
@@ -47,15 +50,19 @@ void TIMER0_IRQHandler(void) {
       scanline = 0;
       // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
-      LPC_GPIO0->FIOSET = (1 << LED2_PIN);
+      LPC_GPIO0->FIOSET = (1 << DBG_PIN);            
       
-      row = 0;
+      row = -1;
+      
+      half_frame++;
     } else if(scanline == VSYNC_END) {
       LPC_TIM0->MR0 = LINE_PERIOD;
-      LPC_GPIO0->FIOCLR = (1 << LED2_PIN);
+      LPC_GPIO0->FIOCLR = (1 << DBG_PIN);
     }
     
+    row++;
     col = 0;
+    LPC_TIM0->MR2 = PIXEL_START;
     
     SET_HSYNC;
     
@@ -78,8 +85,8 @@ void TIMER0_IRQHandler(void) {
     
     // Shouldn't draw on the first 20 lines!
     if(scanline >= (VSYNC_END + 10)) {
-      
-      if((col & 1) ^ (color & 1)) {
+      // row >> 4 gives us ~ 15 vertical lines
+      if((col & 1) ^ ((row >> 4) & 1) ^ (color & 1)) {
         SET_WHITE;
       } else {
         SET_BLACK;
@@ -120,6 +127,7 @@ int main() {
   
   // Setup P1.23 as output
   LPC_GPIO0->FIODIR |= (1 << LED2_PIN);
+  LPC_GPIO0->FIODIR |= (1 << DBG_PIN);
   
   // Setup video pin as output
   LPC_GPIO2->FIODIR |= (1 << VIDEO_PIN);
@@ -130,14 +138,15 @@ int main() {
   
   NVIC_EnableIRQ(TIMER0_IRQn);
   
-  uint32_t next_toggle = 5000;
+  uint32_t next_toggle = 500;
   
   for(;;) {
 
     if(systick_counter >= next_toggle) {
       // Toggle LED
-      next_toggle += 5000;
+      LPC_GPIO0->FIOPIN ^= (1 << LED2_PIN);
       color ^= 1;
+      next_toggle += 500;
     }
     
     __WFI(); // Sleep until next systick

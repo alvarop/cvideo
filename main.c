@@ -8,13 +8,25 @@
 #define VIDEO_PIN (0) // P2.0
 #define HSYNC_PIN (1) // P2.1
 
-#define LINE_PERIOD (6348) // ~15.75 kHz
+#define LINE_PERIOD (6350) // ~15.75 kHz
 #define FRONT_PORCH (150) // 1.5us
 #define HSYNC_WIDTH (485) // 4.85us
 #define BACK_PORCH (485) // 4.85us
 
+#define VSYNC_END (20*2)
+#define TOTAL_LINES (262+20)
+
+#define PIXEL_START (FRONT_PORCH + HSYNC_WIDTH + BACK_PORCH)
+
+#define SET_BLACK LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN);LPC_GPIO2->FIOSET = (1 << VIDEO_PIN)
+#define SET_WHITE LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOSET = (1 << HSYNC_PIN)
+#define SET_HSYNC LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN)
+
 volatile uint32_t systick_counter = 0;
-volatile uint16_t line = 0;
+volatile uint32_t line = 0;
+volatile uint32_t hsync = 0;
+
+volatile uint32_t color = 0;
 
 void SysTick_Handler (void)
 {
@@ -27,24 +39,71 @@ void TIMER0_IRQHandler(void) {
     // Clear MR0 interrupt flag
     LPC_TIM0->IR = 0x1;
     
-    // Toggle pin to check how often systick we wake up (should be 1ms)
-    LPC_GPIO2->FIOPIN ^= (1 << VIDEO_PIN);
+    if(++line == TOTAL_LINES) {
+      line = 0;
+      LPC_TIM0->MR0 = LINE_PERIOD/2;
+      LPC_TIM0->MR1 = FRONT_PORCH/2;
+      LPC_GPIO0->FIOSET = (1 << LED2_PIN);
+      SET_BLACK;
+    } else if(line == VSYNC_END) {
+      LPC_TIM0->MR0 = LINE_PERIOD;
+    }
     
+    LPC_TIM0->MR2 = PIXEL_START;
+    LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);
+
+    hsync = 0;
   } else if(LPC_TIM0->IR & 0x2) {
     // Clear MR1 interrupt flag
     LPC_TIM0->IR = 0x2;
     
-    // HSYNC
-    if(LPC_GPIO2->FIOPIN & (1 << HSYNC_PIN)) {
-      LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN);
-      LPC_TIM0->MR1 = FRONT_PORCH + HSYNC_WIDTH;
+    if(line < VSYNC_END) {
+      if((line > 2) && (line < 6)) {
+        if(!hsync) {
+          SET_BLACK;
+          hsync = 1;
+          LPC_TIM0->MR1 = (FRONT_PORCH + HSYNC_WIDTH)/2;
+        } else {
+          SET_HSYNC;
+          hsync = 0;
+          LPC_TIM0->MR1 = (FRONT_PORCH)/2;
+        }
+       } else {
+          if(!hsync) {
+            SET_HSYNC;
+            hsync = 1;
+            LPC_TIM0->MR1 = (FRONT_PORCH + HSYNC_WIDTH)/2;
+          } else {
+            SET_BLACK;
+            hsync = 0;
+            LPC_TIM0->MR1 = FRONT_PORCH/2;
+          }
+       }
     } else {
-      LPC_GPIO2->FIOSET = (1 << HSYNC_PIN);
-      LPC_TIM0->MR1 = FRONT_PORCH;
+      LPC_GPIO0->FIOCLR = (1 << LED2_PIN);
+      // Regular HSYNC
+      if(!hsync) {
+        SET_HSYNC;
+        hsync = 1;
+        LPC_TIM0->MR1 = FRONT_PORCH + HSYNC_WIDTH;
+      } else {
+        SET_BLACK;
+        hsync = 0;
+        LPC_TIM0->MR1 = FRONT_PORCH;
+      }
     }
+    
+ 
   } else if(LPC_TIM0->IR & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
+    if(line >= VSYNC_END) {
+      if(color) {
+        SET_WHITE;
+      } else {
+        SET_BLACK;
+      }
+    }
         
   } else if(LPC_TIM0->IR & 0x8) {
     // Clear MR3 interrupt flag
@@ -62,7 +121,7 @@ int main() {
   
   // Setup timer0
   LPC_SC->PCLKSEL0 |= (1 << 2); // Use CPU clock for timer0
-  LPC_TIM0->MCR = (3 << 0) | (1 << 3); // Interrupt and reset on MR0, interrupt on MR1
+  LPC_TIM0->MCR = (3 << 0) | (1 << 3) | (1 << 6); // Interrupt and reset on MR0, interrupt on MR1 and MR2
   LPC_TIM0->MR0 = LINE_PERIOD;
   LPC_TIM0->MR1 = FRONT_PORCH;
   LPC_TIM0->TCR = 0x2;          // reset counter
@@ -76,15 +135,16 @@ int main() {
   LPC_GPIO2->FIODIR |= (1 << HSYNC_PIN);
   
   // HSYNC high
-  LPC_GPIO2->FIOSET = (1 << HSYNC_PIN);
+  SET_BLACK;
   
   NVIC_EnableIRQ(TIMER0_IRQn);
     
   for(;;) {
 
-    if(0 == (systick_counter % 500)) {
+    if(0 == (systick_counter % 5000)) {
       // Toggle LED
-      LPC_GPIO0->FIOPIN ^= (1 << LED2_PIN);
+      
+      color ^= 1;
     }
     
     __WFI(); // Sleep until next systick

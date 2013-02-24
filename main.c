@@ -50,37 +50,16 @@ void TIMER0_IRQHandler(void) {
       LPC_TIM0->MR0 = LINE_PERIOD;
     }
     
-    LPC_TIM0->MR2 = PIXEL_START;
     LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);
 
     hsync = 0;
-  } else if(LPC_TIM0->IR & 0x2) {
+  } 
+  
+  if(LPC_TIM0->IR & 0x2) {
     // Clear MR1 interrupt flag
     LPC_TIM0->IR = 0x2;
     
-    if(line < VSYNC_END) {
-      if((line > 5) && (line < 12)) {
-        if(!hsync) {
-          SET_BLACK;
-          hsync = 1;
-          LPC_TIM0->MR1 += HSYNC_WIDTH/2;
-        } else {
-          SET_HSYNC;
-          hsync = 0;
-          LPC_TIM0->MR1 = (FRONT_PORCH)/2;
-        }
-       } else {
-          if(!hsync) {
-            SET_HSYNC;
-            hsync = 1;
-            LPC_TIM0->MR1 += HSYNC_WIDTH/2;
-          } else {
-            SET_BLACK;
-            hsync = 0;
-            LPC_TIM0->MR1 = FRONT_PORCH/2;
-          }
-       }
-    } else {
+    if(line >= VSYNC_END) {
       LPC_GPIO0->FIOCLR = (1 << LED2_PIN);
       // Regular HSYNC
       if(!hsync) {
@@ -93,9 +72,10 @@ void TIMER0_IRQHandler(void) {
         LPC_TIM0->MR1 = FRONT_PORCH;
       }
     }
-    
  
-  } else if(LPC_TIM0->IR & 0x4) {
+  } 
+  
+  if(LPC_TIM0->IR & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
     
@@ -106,12 +86,42 @@ void TIMER0_IRQHandler(void) {
       } else {
         SET_BLACK;
       }
+      
+      if(LPC_TIM0->TC > (LINE_PERIOD - FRONT_PORCH)) {
+        LPC_TIM0->MR2 = PIXEL_START;
+      }
     }
         
-  } else if(LPC_TIM0->IR & 0x8) {
+  } 
+  
+  if(LPC_TIM0->IR & 0x8) {
     // Clear MR3 interrupt flag
     LPC_TIM0->IR = 0x8;
-        
+    
+    if(line < VSYNC_END) {
+      if((line > 5) && (line < 12)) {
+        if(!hsync) {
+          SET_BLACK;
+          hsync = 1;
+          LPC_TIM0->MR3 += HSYNC_WIDTH/2;
+        } else {
+          SET_HSYNC;
+          hsync = 0;
+          LPC_TIM0->MR3 = FRONT_PORCH/2;
+        }
+      } else {
+        if(!hsync) {
+          SET_HSYNC;
+          hsync = 1;
+          LPC_TIM0->MR3 += HSYNC_WIDTH/2;
+        } else {
+          SET_BLACK;
+          hsync = 0;
+          LPC_TIM0->MR3 = FRONT_PORCH/2;
+        }
+      }
+    }
+     
   }
   
 }
@@ -124,9 +134,13 @@ int main() {
   
   // Setup timer0
   LPC_SC->PCLKSEL0 |= (1 << 2); // Use CPU clock for timer0
-  LPC_TIM0->MCR = (3 << 0) | (1 << 3) | (1 << 6); // Interrupt and reset on MR0, interrupt on MR1 and MR2
+  
+  // Interrupt and reset on MR0, interrupt on MR1, MR2, and MR3
+  LPC_TIM0->MCR = (3 << 0) | (1 << 3) | (1 << 6) | (1 << 9); 
   LPC_TIM0->MR0 = LINE_PERIOD;
   LPC_TIM0->MR1 = FRONT_PORCH;
+  LPC_TIM0->MR3 = FRONT_PORCH;
+  LPC_TIM0->MR2 = PIXEL_START;
   LPC_TIM0->TCR = 0x2;          // reset counter
   LPC_TIM0->TCR = 0x1;          // Enable timer
   

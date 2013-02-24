@@ -13,8 +13,8 @@
 #define HSYNC_WIDTH (485) // 4.85us
 #define BACK_PORCH (485) // 4.85us
 
-#define VSYNC_END (20*2)
-#define TOTAL_LINES (262+20)
+#define VSYNC_END (9*2)
+#define TOTAL_LINES (262+9)
 
 #define PIXEL_START (FRONT_PORCH + HSYNC_WIDTH + BACK_PORCH)
 
@@ -58,7 +58,7 @@ void TIMER0_IRQHandler(void) {
     LPC_TIM0->IR = 0x2;
     
     if(line < VSYNC_END) {
-      if((line > 2) && (line < 6)) {
+      if((line > 5) && (line < 12)) {
         if(!hsync) {
           SET_BLACK;
           hsync = 1;
@@ -97,7 +97,7 @@ void TIMER0_IRQHandler(void) {
   } else if(LPC_TIM0->IR & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
-    if(line >= VSYNC_END) {
+    if(line >= (VSYNC_END + 10)) {
       if(color) {
         SET_WHITE;
       } else {

@@ -33,7 +33,7 @@ void SysTick_Handler (void)
 }
 
 void TIMER0_IRQHandler(void) {
-  volatile uint32_t ir = LPC_TIM0->IR;
+  uint32_t ir = LPC_TIM0->IR;
   
   if(ir & 0x1) {
     // Clear MR0 interrupt flag
@@ -50,22 +50,20 @@ void TIMER0_IRQHandler(void) {
     }
     
     SET_HSYNC;
-    if((line > 5) && (line < 12)) {
-      LPC_TIM0->MR3 = LPC_TIM0->MR0 - HSYNC_WIDTH/2;
+    
+    if(line >= VSYNC_END) {
+      LPC_TIM0->MR1 = HSYNC_WIDTH;
+    } else if((line > 5) && (line < 12)) {
+      LPC_TIM0->MR1 = LPC_TIM0->MR0 - HSYNC_WIDTH/2;
     } else {;
-      LPC_TIM0->MR3 = HSYNC_WIDTH/2;
+      LPC_TIM0->MR1 = HSYNC_WIDTH/2;
     }
-    LPC_TIM0->MR1 = HSYNC_WIDTH;
     
   } else if(ir & 0x2) {
     // Clear MR1 interrupt flag
     LPC_TIM0->IR = 0x2;
-    
-    if(line >= VSYNC_END) {
-      // Regular HSYNC
-      SET_BLACK;
-    }
- 
+
+    SET_BLACK;
   } else if(ir & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
@@ -85,11 +83,6 @@ void TIMER0_IRQHandler(void) {
   } else if(ir & 0x8) {
     // Clear MR3 interrupt flag
     LPC_TIM0->IR = 0x8;
-    
-    if(line < VSYNC_END) {
-      SET_BLACK;
-    }
-     
   }
   
 }
@@ -103,11 +96,10 @@ int main() {
   // Setup timer0
   LPC_SC->PCLKSEL0 |= (1 << 2); // Use CPU clock for timer0
   
-  // Interrupt and reset on MR0, interrupt on MR1, MR2, and MR3
-  LPC_TIM0->MCR = (3 << 0) | (1 << 3) | (1 << 6) | (1 << 9); 
+  // Interrupt and reset on MR0, interrupt on MR1 and MR2
+  LPC_TIM0->MCR = (3 << 0) | (1 << 3) | (1 << 6); 
   LPC_TIM0->MR0 = LINE_PERIOD;
   LPC_TIM0->MR1 = 0;
-  LPC_TIM0->MR3 = 0;
   LPC_TIM0->MR2 = PIXEL_START;
   LPC_TIM0->TCR = 0x2;          // reset counter
   LPC_TIM0->TCR = 0x1;          // Enable timer

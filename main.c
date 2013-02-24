@@ -41,6 +41,7 @@ void TIMER0_IRQHandler(void) {
     
     if(++line == TOTAL_LINES) {
       line = 0;
+      // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
       LPC_TIM0->MR1 = FRONT_PORCH/2;
       LPC_GPIO0->FIOSET = (1 << LED2_PIN);
@@ -62,7 +63,7 @@ void TIMER0_IRQHandler(void) {
         if(!hsync) {
           SET_BLACK;
           hsync = 1;
-          LPC_TIM0->MR1 = (FRONT_PORCH + HSYNC_WIDTH)/2;
+          LPC_TIM0->MR1 += HSYNC_WIDTH/2;
         } else {
           SET_HSYNC;
           hsync = 0;
@@ -72,7 +73,7 @@ void TIMER0_IRQHandler(void) {
           if(!hsync) {
             SET_HSYNC;
             hsync = 1;
-            LPC_TIM0->MR1 = (FRONT_PORCH + HSYNC_WIDTH)/2;
+            LPC_TIM0->MR1 += HSYNC_WIDTH/2;
           } else {
             SET_BLACK;
             hsync = 0;
@@ -85,7 +86,7 @@ void TIMER0_IRQHandler(void) {
       if(!hsync) {
         SET_HSYNC;
         hsync = 1;
-        LPC_TIM0->MR1 = FRONT_PORCH + HSYNC_WIDTH;
+        LPC_TIM0->MR1 += HSYNC_WIDTH;
       } else {
         SET_BLACK;
         hsync = 0;
@@ -97,6 +98,8 @@ void TIMER0_IRQHandler(void) {
   } else if(LPC_TIM0->IR & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
+    
+    // Shouldn't draw on the first 20 lines!
     if(line >= (VSYNC_END + 10)) {
       if(color) {
         SET_WHITE;
@@ -138,12 +141,14 @@ int main() {
   SET_BLACK;
   
   NVIC_EnableIRQ(TIMER0_IRQn);
-    
+  
+  uint32_t next_toggle = 5000;
+  
   for(;;) {
 
-    if(0 == (systick_counter % 5000)) {
+    if(systick_counter >= next_toggle) {
       // Toggle LED
-      
+      next_toggle += 5000;
       color ^= 1;
     }
     

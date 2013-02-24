@@ -34,8 +34,9 @@ void SysTick_Handler (void)
 }
 
 void TIMER0_IRQHandler(void) {
+  uint32_t ir = LPC_TIM0->IR;
   
-  if(LPC_TIM0->IR & 0x1) {
+  if(ir & 0x1) {
     // Clear MR0 interrupt flag
     LPC_TIM0->IR = 0x1;
     
@@ -55,7 +56,7 @@ void TIMER0_IRQHandler(void) {
     hsync = 0;
   } 
   
-  if(LPC_TIM0->IR & 0x2) {
+  if(ir & 0x2) {
     // Clear MR1 interrupt flag
     LPC_TIM0->IR = 0x2;
     
@@ -75,7 +76,7 @@ void TIMER0_IRQHandler(void) {
  
   } 
   
-  if(LPC_TIM0->IR & 0x4) {
+  if(ir & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
     
@@ -94,7 +95,7 @@ void TIMER0_IRQHandler(void) {
         
   } 
   
-  if(LPC_TIM0->IR & 0x8) {
+  if(ir & 0x8) {
     // Clear MR3 interrupt flag
     LPC_TIM0->IR = 0x8;
     

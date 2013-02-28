@@ -6,6 +6,8 @@
 
 #define LED2_PIN (22)
 #define DBG_PIN (21)
+#define DBG2_PIN (3)
+
 #define VIDEO_PIN (0) // P2.0
 #define HSYNC_PIN (1) // P2.1
 
@@ -26,6 +28,8 @@
 
 volatile uint32_t systick_counter = 0;
 volatile uint32_t scanline = 0;
+
+volatile uint32_t draw = 0;
 
 volatile uint32_t half_frame = 0;
 
@@ -50,14 +54,17 @@ void TIMER0_IRQHandler(void) {
       scanline = 0;
       // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
-      LPC_GPIO0->FIOSET = (1 << DBG_PIN);            
       
       row = -1;
+      
+      // Shouldn't draw on the first 20 lines! 
+      LPC_TIM0->MCR &= ~(1 << 6); // Disable pixel draw interrupt
       
       half_frame++;
     } else if(scanline == VSYNC_END) {
       LPC_TIM0->MR0 = LINE_PERIOD;
-      LPC_GPIO0->FIOCLR = (1 << DBG_PIN);
+    } else if(scanline >= (VSYNC_END + 10)) {
+      LPC_TIM0->MCR |= (1 << 6); // Enable pixel draw interrupt
     }
     
     row++;
@@ -83,29 +90,19 @@ void TIMER0_IRQHandler(void) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
     
-    // Shouldn't draw on the first 20 lines!
-    if(scanline >= (VSYNC_END + 10)) {
-      // row >> 4 gives us ~ 15 vertical lines
-      if((col & 1) ^ ((row >> 4) & 1) ^ (color & 1)) {
-        SET_WHITE;
-      } else {
-        SET_BLACK;
-      }
-      
-      if(LPC_TIM0->TC > (LINE_PERIOD - FRONT_PORCH)) {
-        LPC_TIM0->MR2 = PIXEL_START;
-      } else {
-        LPC_TIM0->MR2 += PIXEL_PERIOD;
-      }
-      
-      col++;
+    // Pixel color determined in main loop
+    if(draw) {
+      SET_WHITE;
+    } else {
+      SET_BLACK;
     }
-        
+    
+    LPC_TIM0->MR2 += PIXEL_PERIOD;
+    col++;
   } else if(ir & 0x8) {
     // Clear MR3 interrupt flag
     LPC_TIM0->IR = 0x8;
   }
-  
 }
 
 int main() {
@@ -128,6 +125,7 @@ int main() {
   // Setup P1.23 as output
   LPC_GPIO0->FIODIR |= (1 << LED2_PIN);
   LPC_GPIO0->FIODIR |= (1 << DBG_PIN);
+  LPC_GPIO0->FIODIR |= (1 << DBG2_PIN);
   
   // Setup video pin as output
   LPC_GPIO2->FIODIR |= (1 << VIDEO_PIN);
@@ -145,8 +143,15 @@ int main() {
     if(systick_counter >= next_toggle) {
       // Toggle LED
       LPC_GPIO0->FIOPIN ^= (1 << LED2_PIN);
-      color ^= 1;
+      //color ^= 1;
       next_toggle += 500;
+    }
+    
+    // Determine the current pixel's color
+    if((col & 1) & ((row >> 4) & 1)) {
+      draw = 1;
+    } else {
+      draw = 0;
     }
     
     __WFI(); // Sleep until next systick

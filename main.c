@@ -22,9 +22,14 @@
 
 #define PIXEL_START (HSYNC_WIDTH + BACK_PORCH)
 
-#define SET_BLACK LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN);LPC_GPIO2->FIOSET = (1 << VIDEO_PIN)
-#define SET_WHITE LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOSET = (1 << HSYNC_PIN)
-#define SET_HSYNC LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN)
+//#define SET_BLACK LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN);LPC_GPIO2->FIOSET = (1 << VIDEO_PIN)
+//#define SET_WHITE LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOSET = (1 << HSYNC_PIN)
+//#define SET_HSYNC LPC_GPIO2->FIOCLR = (1 << VIDEO_PIN);LPC_GPIO2->FIOCLR = (1 << HSYNC_PIN)
+
+#define SET_BLACK LPC_GPIO2->FIOPIN = (1 << VIDEO_PIN)
+#define SET_WHITE LPC_GPIO2->FIOPIN = (1 << HSYNC_PIN)
+#define SET_HSYNC LPC_GPIO2->FIOPIN = 0
+
 
 volatile uint32_t systick_counter = 0;
 volatile uint32_t scanline = 0;
@@ -37,6 +42,16 @@ volatile uint32_t color = 0;
 
 volatile int32_t col = 0;
 volatile int32_t row = 0;
+
+uint32_t next_toggle = 500;
+
+uint8_t line[200];
+
+#define TOTAL_STATES (3)
+#define STATE_IDLE (0)
+#define STATE_DRAWING (1)
+#define STATE_COMPUTE (2)
+volatile uint32_t state = STATE_IDLE;
 
 void SysTick_Handler (void)
 {
@@ -52,6 +67,7 @@ void TIMER0_IRQHandler(void) {
     
     if(++scanline == TOTAL_LINES) {
       scanline = 0;
+      LPC_GPIO0->FIOSET = (1 << DBG_PIN);
       // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
       
@@ -61,15 +77,16 @@ void TIMER0_IRQHandler(void) {
       LPC_TIM0->MCR &= ~(1 << 6); // Disable pixel draw interrupt
       
       half_frame++;
+      state = STATE_IDLE;
     } else if(scanline == VSYNC_END) {
       LPC_TIM0->MR0 = LINE_PERIOD;
+      state = STATE_COMPUTE;
     } else if(scanline >= (VSYNC_END + 10)) {
       LPC_TIM0->MCR |= (1 << 6); // Enable pixel draw interrupt
     }
     
     row++;
     col = 0;
-    LPC_TIM0->MR2 = PIXEL_START;
     
     SET_HSYNC;
     
@@ -84,32 +101,64 @@ void TIMER0_IRQHandler(void) {
   } else if(ir & 0x2) {
     // Clear MR1 interrupt flag
     LPC_TIM0->IR = 0x2;
-
+    LPC_GPIO0->FIOCLR = (1 << DBG_PIN);
     SET_BLACK;
   } else if(ir & 0x4) {
     // Clear MR2 interrupt flag
     LPC_TIM0->IR = 0x4;
-    
-    // Pixel color determined in main loop
-    if(draw) {
-      SET_WHITE;
-    } else {
-      SET_BLACK;
-    }
-    
-    LPC_TIM0->MR2 += PIXEL_PERIOD;
+
     col++;
+    state = STATE_DRAWING;
   } else if(ir & 0x8) {
     // Clear MR3 interrupt flag
     LPC_TIM0->IR = 0x8;
   }
 }
 
+void fn_idle() {
+  if(systick_counter >= next_toggle) {
+    // Toggle LED
+    LPC_GPIO0->FIOPIN ^= (1 << LED2_PIN);
+    //color ^= 1;
+    next_toggle += 500;
+  }
+}
+
+void fn_drawing() {
+  //__disable_irq();
+  //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
+  for(uint16_t x = 0; x<sizeof(line); x++) {
+    if(line[x]) {
+      SET_WHITE;
+      //LPC_GPIO0->FIOSET = (1 << DBG2_PIN);
+    } else {
+      SET_BLACK;
+      //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
+    }
+  }
+
+  SET_BLACK;
+  //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
+  //__enable_irq();
+  state = STATE_IDLE;
+}
+
+void fn_compute() {
+  
+  for(uint16_t x = 0; x<sizeof(line); x++) {
+    line[x] = !(x & 0x01);
+  }
+  
+  state = STATE_IDLE;
+}
+
+void (*fn[TOTAL_STATES])() = {fn_idle, fn_drawing, fn_compute};
+
 int main() {
   
   SystemInit();
 
-  SysTick_Config(SystemCoreClock/1000 - 1); // Generate interrupt each 1 ms
+  //SysTick_Config(SystemCoreClock/1000 - 1); // Generate interrupt each 1 ms
   
   // Setup timer0
   LPC_SC->PCLKSEL0 |= (1 << 2); // Use CPU clock for timer0
@@ -136,24 +185,11 @@ int main() {
   
   NVIC_EnableIRQ(TIMER0_IRQn);
   
-  uint32_t next_toggle = 500;
-  
   for(;;) {
-
-    if(systick_counter >= next_toggle) {
-      // Toggle LED
-      LPC_GPIO0->FIOPIN ^= (1 << LED2_PIN);
-      //color ^= 1;
-      next_toggle += 500;
-    }
     
-    // Determine the current pixel's color
-    if((col & 1) & ((row >> 4) & 1)) {
-      draw = 1;
-    } else {
-      draw = 0;
+    if(state < TOTAL_STATES) {
+      fn[state]();
     }
-    
     __WFI(); // Sleep until next systick
        
   }

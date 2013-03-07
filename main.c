@@ -33,8 +33,7 @@
 
 volatile uint32_t systick_counter = 0;
 volatile uint32_t scanline = 0;
-
-volatile uint32_t draw = 0;
+volatile int16_t drawline = 0;
 
 volatile uint32_t half_frame = 0;
 
@@ -45,14 +44,22 @@ volatile int32_t row = 0;
 
 uint32_t next_toggle = 500;
 
-#define WIDTH_PX (190)
+#define WIDTH_PX (188)
+#define HEIGHT_PX (120)
 
 uint8_t screen[2][WIDTH_PX];
 
-#define TOTAL_STATES (3)
+#define BALL_WIDTH (5)
+#define BALL_HEIGHT (5)
+
+int16_t ball_x = WIDTH_PX/2;
+int16_t ball_y = BALL_HEIGHT/2;
+
+#define TOTAL_STATES (4)
 #define STATE_IDLE (0)
 #define STATE_DRAWING (1)
 #define STATE_COMPUTE (2)
+#define STATE_COMPUTE_LINE (3)
 volatile uint32_t state = STATE_IDLE;
 
 void SysTick_Handler (void)
@@ -69,6 +76,8 @@ void TIMER0_IRQHandler(void) {
     
     if(++scanline == TOTAL_LINES) {
       scanline = 0;
+      drawline = 0;
+
       LPC_GPIO0->FIOSET = (1 << DBG_PIN);
       // The first 9 lines are vsync pulses
       LPC_TIM0->MR0 = LINE_PERIOD/2;
@@ -79,7 +88,7 @@ void TIMER0_IRQHandler(void) {
       LPC_TIM0->MCR &= ~(1 << 6); // Disable pixel draw interrupt
       
       half_frame++;
-      state = STATE_IDLE;
+      //state = STATE_IDLE;
     } else if(scanline == VSYNC_END) {
       LPC_TIM0->MR0 = LINE_PERIOD;
       state = STATE_COMPUTE;
@@ -126,8 +135,9 @@ void fn_idle() {
   }
 }
 
+// Draw current line on screen
 void fn_drawing() {
-  uint8_t *line = screen[!(scanline&0x2)];
+  uint8_t *line = screen[1];
   for(uint16_t x = 0; x < WIDTH_PX; x++) {
     if(line[x]) {
       SET_WHITE;
@@ -135,17 +145,58 @@ void fn_drawing() {
       SET_BLACK;
     }
   }
-
   SET_BLACK;
-  state = STATE_IDLE;
+  drawline++;
+  state = STATE_COMPUTE_LINE;
 }
 
+// Compute ball position (once per frame, or is it half-frame?)
 void fn_compute() {
-  
+  static int8_t xstep = 1;
+  static int8_t ystep = 1;
+
+  ball_y += ystep;
+  ball_x += xstep;
+
+  if(xstep > 0 && (ball_x + BALL_WIDTH/2) > WIDTH_PX) {
+    xstep = -1;
+  }
+
+  if(xstep < 0 && (ball_x - BALL_WIDTH/2) < 0) {
+    xstep = 1;
+  }
+
+  if(ystep > 0 && (ball_y + BALL_HEIGHT/2) > HEIGHT_PX) {
+    ystep = -1;
+  }
+
+  if(ystep < 0 && (ball_y - BALL_HEIGHT/2) < 0) {
+    ystep = 1;
+  }
+
   state = STATE_IDLE;
 }
 
-void (*fn[TOTAL_STATES])() = {fn_idle, fn_drawing, fn_compute};
+// Erase old line and figure out what goes on the current line
+// Maybe I can use DMA to erase the old line instead of wasting time here?
+void fn_compute_line() {
+  LPC_GPIO0->FIOSET = (1 << DBG2_PIN);
+  uint32_t *line32 = (uint32_t *)screen[1];
+  for(; line32 < (uint32_t*)screen[2];) {
+    *(line32++) = 0;    
+  }
+  uint8_t *line = screen[1];
+  if((drawline >= (ball_y - (BALL_HEIGHT/2))) && (drawline <= (ball_y + (BALL_HEIGHT/2))) ) {
+    for(uint8_t x = ball_x - BALL_WIDTH/2; x < ball_x + BALL_WIDTH/2; x++) {
+      line[x] = 1;
+    }
+  }
+
+  LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
+  state = STATE_IDLE;
+}
+
+void (*fn[TOTAL_STATES])() = {fn_idle, fn_drawing, fn_compute, fn_compute_line};
 
 int main() {
   
@@ -177,11 +228,11 @@ int main() {
   SET_HSYNC;
   //
   for(uint16_t x = 0; x < WIDTH_PX; x++) {
-    screen[0][x] = !(x & 0x01);
+    screen[0][x] = 0;
   }
 
   for(uint16_t x = 0; x < WIDTH_PX; x++) {
-    screen[1][x] = !!(x & 0x01);
+    screen[1][x] = 1;
   }
 
   NVIC_EnableIRQ(TIMER0_IRQn);

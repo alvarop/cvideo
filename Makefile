@@ -16,7 +16,7 @@ LD      = $(GCC_BIN)arm-none-eabi-gcc
 OBJCOPY = $(GCC_BIN)arm-none-eabi-objcopy
 
 CPU = -mcpu=cortex-m3 -mthumb
-CC_FLAGS = $(CPU) -c -Os -fno-common -fmessage-length=0 -Wall -fno-exceptions -ffunction-sections -fdata-sections -g 
+CC_FLAGS = $(CPU) -c -fno-common -fmessage-length=0 -Wall -fno-exceptions -ffunction-sections -fdata-sections -g 
 CC_SYMBOLS = -DTARGET_LPC1769 -DTOOLCHAIN_GCC_ARM -DNDEBUG -D__CORTEX_M3
 
 LD_FLAGS = -mcpu=cortex-m3 -mthumb -Wl,--gc-sections,-Map=$(PROJECT).map,--cref --specs=nano.specs

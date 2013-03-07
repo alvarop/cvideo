@@ -45,7 +45,9 @@ volatile int32_t row = 0;
 
 uint32_t next_toggle = 500;
 
-uint8_t line[200];
+#define WIDTH_PX (190)
+
+uint8_t screen[2][WIDTH_PX];
 
 #define TOTAL_STATES (3)
 #define STATE_IDLE (0)
@@ -125,29 +127,20 @@ void fn_idle() {
 }
 
 void fn_drawing() {
-  //__disable_irq();
-  //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
-  for(uint16_t x = 0; x<sizeof(line); x++) {
+  uint8_t *line = screen[!(scanline&0x2)];
+  for(uint16_t x = 0; x < WIDTH_PX; x++) {
     if(line[x]) {
       SET_WHITE;
-      //LPC_GPIO0->FIOSET = (1 << DBG2_PIN);
     } else {
       SET_BLACK;
-      //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
     }
   }
 
   SET_BLACK;
-  //LPC_GPIO0->FIOCLR = (1 << DBG2_PIN);
-  //__enable_irq();
   state = STATE_IDLE;
 }
 
 void fn_compute() {
-  
-  for(uint16_t x = 0; x<sizeof(line); x++) {
-    line[x] = !(x & 0x01);
-  }
   
   state = STATE_IDLE;
 }
@@ -182,7 +175,15 @@ int main() {
   
   // HSYNC high
   SET_HSYNC;
-  
+  //
+  for(uint16_t x = 0; x < WIDTH_PX; x++) {
+    screen[0][x] = !(x & 0x01);
+  }
+
+  for(uint16_t x = 0; x < WIDTH_PX; x++) {
+    screen[1][x] = !!(x & 0x01);
+  }
+
   NVIC_EnableIRQ(TIMER0_IRQn);
   
   for(;;) {

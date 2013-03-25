@@ -1,4 +1,4 @@
-GCC_BIN = /home/alvaro/code/gcc/gcc-arm-none-eabi-4_7-2012q4/bin/
+GCC_BIN = ../gcc-arm-none-eabi-4_7-2012q4/bin/
 PROJECT = cvideo
 OBJECTS = system_LPC17xx.o startup_LPC17xx.o main.o 
 SYS_OBJECTS = 
@@ -14,6 +14,8 @@ CC      = $(GCC_BIN)arm-none-eabi-gcc
 CPP     = $(GCC_BIN)arm-none-eabi-g++
 LD      = $(GCC_BIN)arm-none-eabi-gcc
 OBJCOPY = $(GCC_BIN)arm-none-eabi-objcopy
+
+CCLOCAL = gcc
 
 CPU = -mcpu=cortex-m3 -mthumb
 CC_FLAGS = $(CPU) -c -fno-common -fmessage-length=0 -Wall -fno-exceptions -ffunction-sections -fdata-sections -g 
@@ -40,9 +42,14 @@ clean:
 	mkdir -p $(BUILD_DIR)
 	$(CPP) $(CC_FLAGS) $(CC_SYMBOLS) -std=gnu++98 $(INCLUDE_PATHS) -o $(addprefix $(BUILD_DIR), $@) $<
 
+# This is needed for NXP Cortex M devices
+nxpsum:
+	$(CCLOCAL) nxpsum.c -std=c99 -o nxpsum
 
 $(PROJECT).elf: $(OBJECTS) $(SYS_OBJECTS)
 	$(LD) $(LD_FLAGS) -T$(LINKER_SCRIPT) $(LIBRARY_PATHS) -o $@ $(addprefix $(BUILD_DIR), $^) $(LIBRARIES) $(LD_SYS_LIBS) $(LIBRARIES) $(LD_SYS_LIBS)
 
-$(PROJECT).bin: $(PROJECT).elf
+$(PROJECT).bin: $(PROJECT).elf nxpsum
 	$(OBJCOPY) -O binary $< $@
+	# Compute nxp checksum on .bin file here
+	./nxpsum $@
